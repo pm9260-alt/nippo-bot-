@@ -136,7 +136,7 @@ def usage_text():
         "数字を送るだけで日報を作ります。\n\n"
         "▼ スペースでも改行でもOK\n"
         "・4つの数字を入れると"
-        "生地数→UberEats→RocketNow→menu の順\n"
+        "生地数→UberEats→RocketNow→menu の順で入力します\n"
         "　例）40 12 5 8\n"
         "▼ こう返します\n"
         f"{sample}\n\n"
