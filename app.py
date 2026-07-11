@@ -18,14 +18,15 @@ CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
 JST = timezone(timedelta(hours=9))
 WEEK = ["月", "火", "水", "木", "金", "土", "日"]  # 月曜=0
 
+# ユーザーごとの「今日の日報」を一時的に覚えておく（メモリ上）
+records = {}
 
-# Renderのヘルスチェック＆UptimeRobotのping先
+
 @app.route("/", methods=["GET"])
 def health():
     return "OK", 200
 
 
-# LINEからのメッセージ・友だち追加はここに届く
 @app.route("/callback", methods=["POST"])
 def callback():
     # 署名検証（LINE以外からの偽リクエストを弾く）
@@ -39,63 +40,117 @@ def callback():
         etype = event.get("type")
         reply_token = event.get("replyToken")
 
-        # ① 友だち追加された瞬間 → 使い方を送る
+        # 友だち追加 → 使い方を送る
         if etype == "follow":
             reply(reply_token, usage_text())
             continue
 
-        # ② テキスト以外（スタンプ・画像など）は無視
+        # テキスト以外（スタンプ・画像など）は無視
         if etype != "message" or event["message"].get("type") != "text":
             continue
 
-        text = event["message"]["text"]
-
-        # ③「使い方」「ヘルプ」なら、いつでも使い方を再表示
-        if re.search(r"使い方|ヘルプ|help", text, re.IGNORECASE):
-            reply(reply_token, usage_text())
-            continue
-
-        # ④ 数字を3つ抜き出して日報にする
-        nums = re.findall(r"\d+", text)
-        if len(nums) < 3:
-            reply(reply_token, "数字を3つ送ってください。\n例）12 5 8\n\n（「使い方」と送ると説明を表示します）")
-        else:
-            reply(reply_token, build_report(nums[0], nums[1], nums[2]))
+        user_id = event.get("source", {}).get("userId", "default")
+        text = event["message"]["text"].strip()
+        handle_text(reply_token, user_id, text)
 
     return "OK", 200
 
 
-# 友だち追加時などに送る使い方メッセージ
-def usage_text():
-    sample = build_report("12", "5", "8")
-    return (
-        "追加ありがとうございます！\n"
-        "このアカウントは、数字を3つ送るだけで日報を作ります。\n\n"
-        "左から UberEats → RocketNow → menu の順です。\n\n"
-        "▼ こう送ると（スペースでも改行でもOK）\n"
-        "12 5 8\n\n"
-        "▼ こう返します\n"
-        f"{sample}\n\n"
-        "・日付と曜日は自動で入ります\n"
-        "・生地数は空欄なので、あとから手書きで記入してください\n"
-        "・説明をもう一度見たいときは「使い方」と送ってください"
-    )
+def handle_text(reply_token, user_id, text):
+    # 使い方
+    if re.search(r"使い方|ヘルプ|help", text, re.IGNORECASE):
+        reply(reply_token, usage_text())
+        return
+
+    rec = today_record(user_id)
+
+    # リセット（今日の分を消す）
+    if re.search(r"リセット|クリア|reset", text, re.IGNORECASE):
+        rec.update(kiji="", uber="", rocket="", menu="")
+        reply(reply_token, "今日の日報をリセットしました。\n\n" + build_report(rec))
+        return
+
+    nums = re.findall(r"\d+", text)
+
+    # リッチメニュー「生地数」など、数字が無いときは入力を促す
+    if "生地数" in text and not nums:
+        reply(reply_token, "生地数を数字で送ってください。\n例）40")
+        return
+
+    if len(nums) == 4:
+        # 生地数 → UberEats → RocketNow → menu の順
+        rec["kiji"], rec["uber"], rec["rocket"], rec["menu"] = nums
+    elif len(nums) == 3:
+        # UberEats → RocketNow → menu（生地数は前の値を維持）
+        rec["uber"], rec["rocket"], rec["menu"] = nums
+    elif len(nums) == 1:
+        # 数字1つ = 生地数
+        rec["kiji"] = nums[0]
+    else:
+        reply(
+            reply_token,
+            "数字の送り方\n"
+            "・4つ → 生地数 / UberEats / RocketNow / menu\n"
+            "・3つ → UberEats / RocketNow / menu\n"
+            "・1つ → 生地数だけ\n\n"
+            "例）40 12 5 8",
+        )
+        return
+
+    reply(reply_token, build_report(rec))
 
 
-# 日報の文章を組み立てる
-def build_report(uber, rocket, menu):
+def today_record(user_id):
+    today = datetime.now(JST).strftime("%Y-%m-%d")
+    rec = records.get(user_id)
+    if rec is None or rec.get("date") != today:
+        rec = {"date": today, "kiji": "", "uber": "", "rocket": "", "menu": ""}
+        records[user_id] = rec
+    return rec
+
+
+def build_report(rec):
     now = datetime.now(JST)
     week = WEEK[now.weekday()]
     return (
         f"{now.month}月{now.day}日({week})\n"
-        f"生地数 : \n"
-        f"UberEats : {uber}\n"
-        f"RocketNow : {rocket}\n"
-        f"menu : {menu}"
+        f"生地数 : {rec['kiji']}\n"
+        f"UberEats : {rec['uber']}\n"
+        f"RocketNow : {rec['rocket']}\n"
+        f"menu : {rec['menu']}"
     )
 
 
-# LINEに返信する
+def usage_text():
+    now = datetime.now(JST)
+    week = WEEK[now.weekday()]
+    sample = (
+        f"{now.month}月{now.day}日({week})\n"
+        f"生地数 : 40\n"
+        f"UberEats : 12\n"
+        f"RocketNow : 5\n"
+        f"menu : 8"
+    )
+    return (
+        "追加ありがとうございます！\n"
+        "数字を送るだけで日報を作ります。\n\n"
+        "▼ まとめて送る（スペースでも改行でもOK）\n"
+        "・4つ → 生地数→UberEats→RocketNow→menu の順\n"
+        "　例）40 12 5 8\n"
+        "・3つ → UberEats→RocketNow→menu\n"
+        "　例）12 5 8\n\n"
+        "▼ 生地数だけ入れる\n"
+        "・下のメニュー「生地数」を押す、または数字を1つ送る\n"
+        "　例）40\n\n"
+        "▼ こう返します\n"
+        f"{sample}\n\n"
+        "・日付と曜日は自動です\n"
+        "・同じ日なら、生地数を後から足しても前の数字は残ります\n"
+        "・「リセット」で今日の分を消せます\n"
+        "・「使い方」で説明を再表示します"
+    )
+
+
 def reply(reply_token, text):
     if not reply_token:
         return
