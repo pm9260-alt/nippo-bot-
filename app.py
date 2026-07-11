@@ -134,14 +134,10 @@ def usage_text():
     return (
         "追加ありがとうございます！\n"
         "数字を送るだけで日報を作ります。\n\n"
-        "▼ まとめて送る（スペースでも改行でもOK）\n"
-        "・4つ → 生地数→UberEats→RocketNow→menu の順\n"
+        "▼ スペースでも改行でもOK\n"
+        "・4つの数字を入れると
+        "生地数→UberEats→RocketNow→menu の順\n"
         "　例）40 12 5 8\n"
-        "・3つ → UberEats→RocketNow→menu\n"
-        "　例）12 5 8\n\n"
-        "▼ 生地数だけ入れる\n"
-        "・下のメニュー「生地数」を押す、または数字を1つ送る\n"
-        "　例）40\n\n"
         "▼ こう返します\n"
         f"{sample}\n\n"
         "・日付と曜日は自動です\n"
